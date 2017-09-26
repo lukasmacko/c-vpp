@@ -14,45 +14,30 @@
 
 package cnigrpc
 
-import "github.com/ligato/cn-infra/flavors/local"
-import "github.com/ligato/vpp-agent/plugins/defaultplugins/ifplugin/model/interfaces"
-import "github.com/ligato/vpp-agent/clientv1/defaultplugins/localclient"
+import (
+	"github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
+	"github.com/ligato/cn-infra/flavors/local"
+	"github.com/ligato/cn-infra/rpc/grpc"
+)
 
 // Plugin
 type Plugin struct {
 	Deps
+
+	cniServer *remoteCNIserver
 }
 
 type Deps struct {
 	local.PluginInfraDeps
+	GRPC grpc.Server
 }
 
 func (plugin *Plugin) Init() error {
+	plugin.cniServer = newRemoteCNIServer(plugin.Log)
+	cni.RegisterRemoteCNIServer(plugin.GRPC.Server(), plugin.cniServer)
 	return nil
-}
-
-func (plugin *Plugin) AfterInit() error {
-	return localclient.DataChangeRequest(plugin.PluginName).
-		Put().
-		Interface(&memif1AsMaster).
-		Send().ReceiveReply()
-
 }
 
 func (plugin *Plugin) Close() error {
 	return nil
-}
-
-// memif1AsMaster is an example of a memory interface configuration. (Master=true, with IPv4 address).
-var memif1AsMaster = interfaces.Interfaces_Interface{
-	Name:    "memif1",
-	Type:    interfaces.InterfaceType_MEMORY_INTERFACE,
-	Enabled: true,
-	Memif: &interfaces.Interfaces_Interface_Memif{
-		Id:             1,
-		Master:         true,
-		SocketFilename: "/tmp/memif1.sock",
-	},
-	Mtu:         1500,
-	IpAddresses: []string{"192.168.1.1/24"},
 }

@@ -7,3 +7,7 @@
 [![GitHub license](https://img.shields.io/badge/license-Apache%20license%202.0-blue.svg)](https://github.com/contiv/contiv-vpp/blob/master/LICENSE)
 
 Please note that the content of this repository is currently **WORK IN PROGRESS**.
+
+
+Run:
+`sudo cmd/contiv-vpp/contiv-vpp --grpc-port 9111`
