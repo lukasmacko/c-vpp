@@ -10,4 +10,5 @@ Please note that the content of this repository is currently **WORK IN PROGRESS*
 
 
 Run:
-`sudo cmd/contiv-vpp/contiv-vpp --grpc-port 9111`
+
+```sudo cmd/contiv-vpp/contiv-vpp --grpc-port 9111```
