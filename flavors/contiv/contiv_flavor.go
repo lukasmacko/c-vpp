@@ -19,7 +19,7 @@ import (
 	"github.com/ligato/cn-infra/core"
 	"github.com/ligato/cn-infra/flavors/local"
 
-	"github.com/contiv/contiv-vpp/plugins/cnigrpc"
+	"github.com/contiv/contiv-vpp/plugins/contiv"
 	"github.com/golang/protobuf/proto"
 	"github.com/ligato/cn-infra/datasync"
 	local_sync "github.com/ligato/cn-infra/datasync/kvdbsync/local"
@@ -39,7 +39,7 @@ type FlavorContiv struct {
 	Linux            linuxplugin.Plugin
 	VPP              defaultplugins.Plugin
 	GRPC             grpc.Plugin
-	CNI              cnigrpc.Plugin
+	Contiv           contiv.Plugin
 	injected         bool
 }
 
@@ -71,8 +71,8 @@ func (f *FlavorContiv) Inject() bool {
 	f.GRPC.Deps.PluginName = grpcInfraDeps.PluginName
 	f.GRPC.Deps.PluginConfig = grpcInfraDeps.PluginConfig
 
-	f.CNI.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("cni-grpc")
-	f.CNI.Deps.GRPC = &f.GRPC
+	f.Contiv.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("cni-grpc")
+	f.Contiv.Deps.GRPC = &f.GRPC
 
 	return true
 }
