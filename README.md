@@ -7,3 +7,10 @@
 [![GitHub license](https://img.shields.io/badge/license-Apache%20license%202.0-blue.svg)](https://github.com/contiv/contiv-vpp/blob/master/LICENSE)
 
 Please note that the content of this repository is currently **WORK IN PROGRESS**.
+
+
+Test:
+
+1. Start the server ```sudo cmd/contiv-vpp/contiv-vpp --grpc-port 9111```
+2. Send request ```cmd/cni-grpc-client```
+3. Verify created config ```sudo ip netns exec ns1 ping 10.0.0.2``` or in VPP ```ping 10.0.0.1```
