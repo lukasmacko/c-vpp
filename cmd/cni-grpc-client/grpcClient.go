@@ -14,20 +14,20 @@ const (
 	defaultAddress          = "localhost:9111"
 	defaultIfName           = "veth1"
 	defaultNetworkNamespace = "/var/run/netns/55195f8d25bb4042"
-	defaultContainerId      = "sadjlfkj34l1kq4142348dw90"
+	defaultContainerID      = "sadjlfkj34l1kq4142348dw90"
 )
 
 var (
 	address     string
 	ifname      string
-	containerId string
+	containerID string
 	netns       string
 )
 
 func main() {
 	flag.StringVar(&address, "address", defaultAddress, "address of GRPC server")
 	flag.StringVar(&ifname, "ifname", defaultIfName, "interface name used in request")
-	flag.StringVar(&containerId, "container-id", defaultContainerId, "container id used in request")
+	flag.StringVar(&containerID, "container-id", defaultContainerID, "container id used in request")
 	flag.StringVar(&netns, "netns", defaultNetworkNamespace, "network namespace used in request")
 	flag.Parse()
 
@@ -41,7 +41,7 @@ func main() {
 
 	req := cni.CNIRequest{
 		Version:          "0.3.1",
-		ContainerId:      containerId,
+		ContainerId:      containerID,
 		NetworkNamespace: netns,
 		InterfaceName:    ifname,
 	}

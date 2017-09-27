@@ -30,10 +30,13 @@ import (
 
 type remoteCNIserver struct {
 	logging.Logger
-
 	sync.Mutex
+
+	// bdCreated is true if the bridge domain on the vpp for apackets is configured
 	bdCreated bool
-	counter   int
+	// counter of connected containers. It is used for generating afpacket names
+	// and assigned ip addresses.
+	counter int
 	// created afPacket that are in the bridge domain
 	// map is used to support quick removal
 	afPackets map[string]interface{}
@@ -45,19 +48,21 @@ const (
 	vethNameMaxLen        = 15
 	bdName                = "bd1"
 	bviName               = "loop1"
-	bviIP                 = "10.0.0.254/24"
+	ipMask                = "24"
+	ipPrefix              = "10.0.0"
+	bviIP                 = ipPrefix + ".254/" + ipMask
 )
 
 func newRemoteCNIServer(logger logging.Logger) *remoteCNIserver {
 	return &remoteCNIserver{Logger: logger, afPackets: map[string]interface{}{}}
 }
 
+// Add connects the container to the network.
 func (s *remoteCNIserver) Add(ctx context.Context, request *cni.CNIRequest) (*cni.CNIReply, error) {
 	s.Info("Add request received ", *request)
 	return s.configureContainerConnectivity(request)
 }
 
-// The request to delete a container from network.
 func (s *remoteCNIserver) Delete(ctx context.Context, request *cni.CNIRequest) (*cni.CNIReply, error) {
 	s.Info("Delete request received ", *request)
 	return &cni.CNIReply{}, nil
@@ -80,6 +85,7 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 	log.Info("veth2", veth2)
 	log.Info("afpacket", afpacket)
 
+	// create entry in the afpacket map => add afpacket into bridge domain
 	s.afPackets[afpacket.Name] = nil
 
 	bd := s.bridgeDomain()
@@ -145,7 +151,7 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 //        v
 // +------------+
 // |            |
-// | Veth12     |
+// | Veth2      |
 // |            |
 // +------------+
 //        ^
@@ -154,7 +160,7 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 // |  NS1 v            |
 // |  +------------+   |
 // |  |            |   |
-// |  | Veth11     |   |
+// |  | Veth1      |   |
 // |  |            |   |
 // |  +------------+   |
 // |                   |
@@ -169,28 +175,30 @@ func (s *remoteCNIserver) veth2NameFromRequest(request *cni.CNIRequest) string {
 		return request.ContainerId[:vethNameMaxLen]
 	}
 	return request.ContainerId
+}
 
+func (s *remoteCNIserver) ipAddrForContainer() string {
+	return ipPrefix + "." + strconv.Itoa(s.counter) + "/" + ipMask
 }
 
 func (s *remoteCNIserver) veth1FromRequest(request *cni.CNIRequest) *linux_intf.LinuxInterfaces_Interface {
-	var veth11 = linux_intf.LinuxInterfaces_Interface{
+	return &linux_intf.LinuxInterfaces_Interface{
 		Name:    s.veth1NameFromRequest(request),
 		Type:    linux_intf.LinuxInterfaces_VETH,
 		Enabled: true,
 		Veth: &linux_intf.LinuxInterfaces_Interface_Veth{
 			PeerIfName: s.veth2NameFromRequest(request),
 		},
-		IpAddresses: []string{"10.0.0." + strconv.Itoa(s.counter) + "/24"},
+		IpAddresses: []string{s.ipAddrForContainer()},
 		Namespace: &linux_intf.LinuxInterfaces_Interface_Namespace{
 			Type:     linux_intf.LinuxInterfaces_Interface_Namespace_FILE_REF_NS,
 			Filepath: request.NetworkNamespace,
 		},
 	}
-	return &veth11
 }
 
 func (s *remoteCNIserver) veth2FromRequest(request *cni.CNIRequest) *linux_intf.LinuxInterfaces_Interface {
-	var veth12 = linux_intf.LinuxInterfaces_Interface{
+	return &linux_intf.LinuxInterfaces_Interface{
 		Name:    s.veth2NameFromRequest(request),
 		Type:    linux_intf.LinuxInterfaces_VETH,
 		Enabled: true,
@@ -198,11 +206,10 @@ func (s *remoteCNIserver) veth2FromRequest(request *cni.CNIRequest) *linux_intf.
 			PeerIfName: s.veth1NameFromRequest(request),
 		},
 	}
-	return &veth12
 }
 
 func (s *remoteCNIserver) afpacketFromRequest(request *cni.CNIRequest) *vpp_intf.Interfaces_Interface {
-	var afpacket = vpp_intf.Interfaces_Interface{
+	return &vpp_intf.Interfaces_Interface{
 		Name:    "afpacket" + strconv.Itoa(s.counter),
 		Type:    vpp_intf.InterfaceType_AF_PACKET_INTERFACE,
 		Enabled: true,
@@ -210,7 +217,6 @@ func (s *remoteCNIserver) afpacketFromRequest(request *cni.CNIRequest) *vpp_intf
 			HostIfName: s.veth2NameFromRequest(request),
 		},
 	}
-	return &afpacket
 }
 
 func (s *remoteCNIserver) bridgeDomain() *l2.BridgeDomains_BridgeDomain {
@@ -227,7 +233,7 @@ func (s *remoteCNIserver) bridgeDomain() *l2.BridgeDomains_BridgeDomain {
 		})
 	}
 
-	var bd = l2.BridgeDomains_BridgeDomain{
+	return &l2.BridgeDomains_BridgeDomain{
 		Name:                bdName,
 		Flood:               true,
 		UnknownUnicastFlood: true,
@@ -237,15 +243,13 @@ func (s *remoteCNIserver) bridgeDomain() *l2.BridgeDomains_BridgeDomain {
 		MacAge:              0, /* means disable aging */
 		Interfaces:          ifs,
 	}
-	return &bd
 }
 
 func (s *remoteCNIserver) bviInterface() *vpp_intf.Interfaces_Interface {
-	var loop1 = vpp_intf.Interfaces_Interface{
+	return &vpp_intf.Interfaces_Interface{
 		Name:        bviName,
 		Enabled:     true,
 		IpAddresses: []string{bviIP},
 		Type:        vpp_intf.InterfaceType_SOFTWARE_LOOPBACK,
 	}
-	return &loop1
 }
