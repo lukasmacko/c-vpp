@@ -17,8 +17,11 @@ package contiv
 import (
 	"github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
 	"github.com/ligato/cn-infra/logging"
-	"github.com/ligato/vpp-agent/clientv1/defaultplugins/localclient"
-	"github.com/ligato/vpp-agent/plugins/defaultplugins/ifplugin/model/interfaces"
+	"github.com/ligato/vpp-agent/clientv1/linux/localclient"
+	vpp_intf "github.com/ligato/vpp-agent/plugins/defaultplugins/ifplugin/model/interfaces"
+	"github.com/ligato/vpp-agent/plugins/defaultplugins/l2plugin/model/l2"
+	linux_intf "github.com/ligato/vpp-agent/plugins/linuxplugin/model/interfaces"
+
 	"golang.org/x/net/context"
 )
 
@@ -45,23 +48,75 @@ func (s *remoteCNIserver) Delete(ctx context.Context, request *cni.CNIRequest) (
 	return &cni.CNIReply{}, nil
 }
 
+// configureContainerConnectivity creates veth pair where
+// one end is ns1 namespace, the other is in default namespace.
+// the end in default namespace is connected to VPP using afpacket.
+
 func (s *remoteCNIserver) configureContainerConnectivity() error {
 	return localclient.DataChangeRequest("CNI").
 		Put().
-		Interface(&memif1AsMaster).
+		LinuxInterface(&veth11).
+		LinuxInterface(&veth12).
+		VppInterface(&afpacket1).
+		VppInterface(&loop1).
+		BD(&bd).
 		Send().ReceiveReply()
 }
 
-// memif1AsMaster is an example of a memory interface configuration. (Master=true, with IPv4 address).
-var memif1AsMaster = interfaces.Interfaces_Interface{
-	Name:    "memif1",
-	Type:    interfaces.InterfaceType_MEMORY_INTERFACE,
+var veth11 = linux_intf.LinuxInterfaces_Interface{
+	Name:    "veth11",
+	Type:    linux_intf.LinuxInterfaces_VETH,
 	Enabled: true,
-	Memif: &interfaces.Interfaces_Interface_Memif{
-		Id:             1,
-		Master:         true,
-		SocketFilename: "/tmp/memif1.sock",
+	Veth: &linux_intf.LinuxInterfaces_Interface_Veth{
+		PeerIfName: "veth12",
 	},
-	Mtu:         1500,
-	IpAddresses: []string{"192.168.1.1/24"},
+	IpAddresses: []string{"10.0.0.1/24"},
+	Namespace: &linux_intf.LinuxInterfaces_Interface_Namespace{
+		Type: linux_intf.LinuxInterfaces_Interface_Namespace_NAMED_NS,
+		Name: "ns1",
+	},
+}
+
+var veth12 = linux_intf.LinuxInterfaces_Interface{
+	Name:    "veth12",
+	Type:    linux_intf.LinuxInterfaces_VETH,
+	Enabled: true,
+	Veth: &linux_intf.LinuxInterfaces_Interface_Veth{
+		PeerIfName: "veth11",
+	},
+}
+
+var afpacket1 = vpp_intf.Interfaces_Interface{
+	Name:    "afpacket1",
+	Type:    vpp_intf.InterfaceType_AF_PACKET_INTERFACE,
+	Enabled: true,
+	Afpacket: &vpp_intf.Interfaces_Interface_Afpacket{
+		HostIfName: "veth12",
+	},
+}
+
+var bd = l2.BridgeDomains_BridgeDomain{
+	Name:                "br1",
+	Flood:               true,
+	UnknownUnicastFlood: true,
+	Forward:             true,
+	Learn:               true,
+	ArpTermination:      false,
+	MacAge:              0, /* means disable aging */
+	Interfaces: []*l2.BridgeDomains_BridgeDomain_Interfaces{
+		{
+			Name: "afpacket1",
+			BridgedVirtualInterface: false,
+		}, {
+			Name: "loop1",
+			BridgedVirtualInterface: true,
+		},
+	},
+}
+
+var loop1 = vpp_intf.Interfaces_Interface{
+	Name:        "loop1",
+	Enabled:     true,
+	IpAddresses: []string{"10.0.0.2/24"},
+	Type:        vpp_intf.InterfaceType_SOFTWARE_LOOPBACK,
 }

@@ -33,4 +33,5 @@ func main() {
 		logroot.StandardLogger().Fatalf("could not receive response: %v", err)
 	}
 	logroot.StandardLogger().Printf("Response: %v (received from server)", r.Result)
+	logroot.StandardLogger().Info("In order to test the connection run 'sudo ip netns exec ns1 ping 10.0.0.2'")
 }
