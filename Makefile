@@ -17,6 +17,7 @@ endef
 define install_only
 	@echo "# installing contiv-vpp"
 	@cd cmd/contiv-vpp && go install -v ${LDFLAGS}
+	@cd cmd/contiv-cni && go install -v ${LDFLAGS}
 	@echo "# done"
 endef
 
@@ -65,6 +66,13 @@ define build_contiv_vpp_only
     @echo "# done"
 endef
 
+# build contiv-cni only
+define build_contiv_cni_only
+    @echo "# building contiv-cni"
+    @cd cmd/contiv-cni && go build -v -i ${LDFLAGS}
+    @echo "# done"
+endef
+
 # build cni-grpc-client only
 define build_cni_grpc_client_only
     @echo "# building cni-grpc-client"
@@ -84,11 +92,16 @@ endef
 # build all binaries
 build:
 	$(call build_contiv_vpp_only)
+	$(call build_contiv_cni_only)
 	$(call build_cni_grpc_client_only)
 
 # build contiv-vpp
 contiv-vpp:
 	$(call build_contiv_vpp_only)
+
+# build contiv-cni
+contiv-cni:
+	$(call build_contiv_cni_only)
 
 # install binaries
 install:
@@ -137,6 +150,7 @@ check_links:
 # clean
 clean:
 	rm -f cmd/contiv-vpp/contiv-vpp
+	rm -f cmd/contiv-cni/contiv-cni
 	rm -f cmd/cni-grpc-client/cni-grpc-client
 	@echo "# cleanup completed"
 
