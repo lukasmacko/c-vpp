@@ -40,11 +40,12 @@ type remoteCNIserver struct {
 }
 
 const (
-	resultOk  uint32 = 0
-	resultErr uint32 = 1
-	bdName           = "bd1"
-	bviName          = "loop1"
-	bviIP            = "10.0.0.254/24"
+	resultOk       uint32 = 0
+	resultErr      uint32 = 1
+	vethNameMaxLen        = 15
+	bdName                = "bd1"
+	bviName               = "loop1"
+	bviIP                 = "10.0.0.254/24"
 )
 
 func newRemoteCNIServer(logger logging.Logger) *remoteCNIserver {
@@ -164,7 +165,11 @@ func (s *remoteCNIserver) veth1NameFromRequest(request *cni.CNIRequest) string {
 }
 
 func (s *remoteCNIserver) veth2NameFromRequest(request *cni.CNIRequest) string {
-	return request.ContainerId[:15]
+	if len(request.ContainerId) > vethNameMaxLen {
+		return request.ContainerId[:vethNameMaxLen]
+	}
+	return request.ContainerId
+
 }
 
 func (s *remoteCNIserver) veth1FromRequest(request *cni.CNIRequest) *linux_intf.LinuxInterfaces_Interface {
@@ -177,8 +182,8 @@ func (s *remoteCNIserver) veth1FromRequest(request *cni.CNIRequest) *linux_intf.
 		},
 		IpAddresses: []string{"10.0.0." + strconv.Itoa(s.counter) + "/24"},
 		Namespace: &linux_intf.LinuxInterfaces_Interface_Namespace{
-			Type: linux_intf.LinuxInterfaces_Interface_Namespace_FILE_REF_NS,
-			Name: request.NetworkNamespace,
+			Type:     linux_intf.LinuxInterfaces_Interface_Namespace_FILE_REF_NS,
+			Filepath: request.NetworkNamespace,
 		},
 	}
 	return &veth11
