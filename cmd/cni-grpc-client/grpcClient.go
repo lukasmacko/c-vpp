@@ -11,13 +11,24 @@ import (
 )
 
 const (
-	defaultAddress = "localhost:9111"
+	defaultAddress          = "localhost:9111"
+	defaultIfName           = "veth1"
+	defaultNetworkNamespace = "ns1"
+	defaultContainerId      = "sadjlfkj34l1kq4142348dw90"
 )
 
-var address = defaultAddress
+var (
+	address     string
+	ifname      string
+	containerId string
+	netns       string
+)
 
 func main() {
 	flag.StringVar(&address, "address", defaultAddress, "address of GRPC server")
+	flag.StringVar(&ifname, "ifname", defaultIfName, "interface name used in request")
+	flag.StringVar(&containerId, "container-id", defaultContainerId, "container id used in request")
+	flag.StringVar(&netns, "netns", defaultNetworkNamespace, "network namespace used in request")
 	flag.Parse()
 
 	// Set up a connection to the server.
@@ -30,16 +41,16 @@ func main() {
 
 	req := cni.CNIRequest{
 		Version:          "0.3.1",
-		ContainerId:      "sadjlfkj34l1kq4142348dw90",
-		NetworkNamespace: "ns1",
-		InterfaceName:    "eth0",
+		ContainerId:      containerId,
+		NetworkNamespace: netns,
+		InterfaceName:    ifname,
 	}
 	logroot.StandardLogger().WithField("req", req).Info("Sending request")
 
-	r, err := c.Add(context.Background(), &cni.CNIRequest{})
+	r, err := c.Add(context.Background(), &req)
 	if err != nil {
 		logroot.StandardLogger().Fatalf("could not receive response: %v", err)
 	}
 	logroot.StandardLogger().WithField("resp", *r).Infof("Response: %v (received from server)", r.Result)
-	logroot.StandardLogger().Info("In order to test the connection run 'sudo ip netns exec ns1 ping 10.0.0.254'")
+	logroot.StandardLogger().Info("In order to test the connection run 'sudo ip netns exec " + req.NetworkNamespace + " ping 10.0.0.254'")
 }
