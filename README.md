@@ -8,6 +8,7 @@
 
 Please note that the content of this repository is currently **WORK IN PROGRESS**.
 
+Clone this repository to  <GO-PATH>/contiv/contiv-vpp.
 
 Test:
 
