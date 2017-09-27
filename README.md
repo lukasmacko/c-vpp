@@ -9,6 +9,8 @@
 Please note that the content of this repository is currently **WORK IN PROGRESS**.
 
 
-Run:
+Test:
 
-```sudo cmd/contiv-vpp/contiv-vpp --grpc-port 9111```
+1. Start the server ```sudo cmd/contiv-vpp/contiv-vpp --grpc-port 9111```
+2. Send request ```cmd/cni-grpc-client```
+3. Verify created config ```sudo ip netns exec ns1 ping 10.0.0.2``` or in VPP ```ping 10.0.0.1```
