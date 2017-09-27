@@ -15,21 +15,27 @@
 package main
 
 import (
-	"encoding/json"
-	"io/ioutil"
+	"context"
+	"net"
 
 	"github.com/containernetworking/cni/pkg/skel"
+	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ns"
+	"github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
 	"github.com/vishvananda/netlink"
+	"google.golang.org/grpc"
+)
+
+const (
+	cniVersion     = "0.2.0"
+	defaultAddress = "localhost:9111"
 )
 
 func cmdAdd(args *skel.CmdArgs) error {
-	// TODO: CALL AGENT
-	cniJson, _ := json.Marshal(args)
-	ioutil.WriteFile("/tmp/cni-add.json", cniJson, 0644)
 
+	// TODO: to be removed, this adds a loopback - for debug purposes
 	args.IfName = "lo" // ignore config, this only works for loopback
 	err := ns.WithNetNSPath(args.Netns, func(_ ns.NetNS) error {
 		link, err := netlink.LinkByName(args.IfName)
@@ -48,35 +54,84 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err // not tested
 	}
 
-	//_, ipnet, _ := net.ParseCIDR("192.168.53.53/24")
-	//ip, _, _ := net.ParseCIDR("192.168.53.1/24")
-	//ifidx := 0
-
-	result := &current.Result{
-	//CNIVersion: "0.2.0",
-	//Interfaces: []*current.Interface{
-	//	{
-	//		Name: "lo",
-	//		// mac, sandbox?
-	//	},
-	//},
-	//IPs: []*current.IPConfig{
-	//	{
-	//		Version:   "4",
-	//		Interface: &ifidx,
-	//		Address:   *ipnet,
-	//		Gateway:   ip,
-	//	},
-	//},
+	// connect to remote CNI handler over gRPC
+	conn, c, err := getRemoteCNIClient()
+	if err != nil {
+		return err
 	}
+	defer conn.Close()
+
+	// execute the ADD request
+	r, err := c.Add(context.Background(), &cni.CNIRequest{
+		Version:          cniVersion,
+		ContainerId:      args.ContainerID,
+		InterfaceName:    args.IfName,
+		NetworkNamespace: args.Netns,
+	})
+	if err != nil {
+		return err
+	}
+
+	// process the reply from the remote CNI handler
+	result := &current.Result{
+		CNIVersion: cniVersion,
+	}
+
+	// process interfaces
+	for ifidx, iface := range r.Interfaces {
+		// append interface info
+		result.Interfaces = append(result.Interfaces, &current.Interface{
+			Name:    iface.Name,
+			Mac:     iface.Mac,
+			Sandbox: iface.Sandbox,
+		})
+		for _, ip := range iface.IpAddresses {
+			// append interface ip address info
+			_, ipAddr, err := net.ParseCIDR(ip.Address)
+			if err != nil {
+				return err
+			}
+			gwAddr, _, err := net.ParseCIDR(ip.Gateway)
+			if err != nil {
+				return err
+			}
+			version := "4"
+			if ip.Version == cni.CNIReply_Interface_IP_IPV6 {
+				version = "6"
+			}
+			result.IPs = append(result.IPs, &current.IPConfig{
+				Address:   *ipAddr,
+				Version:   version,
+				Interface: &ifidx,
+				Gateway:   gwAddr,
+			})
+		}
+	}
+
+	// process routes
+	for _, route := range r.Routes {
+		_, dstIP, err := net.ParseCIDR(route.Dst)
+		if err != nil {
+			return err
+		}
+		gwAddr, _, err := net.ParseCIDR(route.Gw)
+		if err != nil {
+			return err
+		}
+		result.Routes = append(result.Routes, &types.Route{
+			Dst: *dstIP,
+			GW:  gwAddr,
+		})
+	}
+
+	// TODO: DNS
+
 	return result.Print()
 }
 
 func cmdDel(args *skel.CmdArgs) error {
-	// TODO: CALL AGENT
-	cniJson, _ := json.Marshal(args)
-	ioutil.WriteFile("/tmp/cni-del.json", cniJson, 0644)
 
+	// TODO: to be removed, this removes a loopback - for debug purposes
 	args.IfName = "lo" // ignore config, this only works for loopback
 	err := ns.WithNetNSPath(args.Netns, func(ns.NetNS) error {
 		link, err := netlink.LinkByName(args.IfName)
@@ -95,9 +150,36 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err // not tested
 	}
 
+	// connect to remote CNI handler over gRPC
+	conn, c, err := getRemoteCNIClient()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	// execute the DELETE request
+	_, err = c.Delete(context.Background(), &cni.CNIRequest{
+		Version:          cniVersion,
+		ContainerId:      args.ContainerID,
+		InterfaceName:    args.IfName,
+		NetworkNamespace: args.Netns,
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func main() {
 	skel.PluginMain(cmdAdd, cmdDel, version.All)
+}
+
+func getRemoteCNIClient() (*grpc.ClientConn, cni.RemoteCNIClient, error) {
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(defaultAddress, grpc.WithInsecure()) // TODO: parse from plugin config
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn, cni.NewRemoteCNIClient(conn), nil
 }
