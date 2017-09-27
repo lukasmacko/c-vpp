@@ -2,3 +2,4 @@ glide.lock
 .idea/*
 cmd/contiv-vpp/contiv-vpp
 cmd/cni-grpc-client/cni-grpc-client
+cmd/contiv-cni/contiv-cni
