@@ -20,12 +20,11 @@ import (
 
 	"github.com/containernetworking/cni/pkg/skel"
 	"github.com/containernetworking/cni/pkg/types"
-	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/cni/pkg/version"
-	"github.com/containernetworking/plugins/pkg/ns"
-	"github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
-	"github.com/vishvananda/netlink"
 	"google.golang.org/grpc"
+
+	cnisb "github.com/containernetworking/cni/pkg/types/current"
+	cninb "github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
 )
 
 const (
@@ -35,25 +34,6 @@ const (
 
 func cmdAdd(args *skel.CmdArgs) error {
 
-	// TODO: to be removed, this adds a loopback - for debug purposes
-	args.IfName = "lo" // ignore config, this only works for loopback
-	err := ns.WithNetNSPath(args.Netns, func(_ ns.NetNS) error {
-		link, err := netlink.LinkByName(args.IfName)
-		if err != nil {
-			return err // not tested
-		}
-
-		err = netlink.LinkSetUp(link)
-		if err != nil {
-			return err // not tested
-		}
-
-		return nil
-	})
-	if err != nil {
-		return err // not tested
-	}
-
 	// connect to remote CNI handler over gRPC
 	conn, c, err := getRemoteCNIClient()
 	if err != nil {
@@ -62,7 +42,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 	defer conn.Close()
 
 	// execute the ADD request
-	r, err := c.Add(context.Background(), &cni.CNIRequest{
+	r, err := c.Add(context.Background(), &cninb.CNIRequest{
 		Version:          cniVersion,
 		ContainerId:      args.ContainerID,
 		InterfaceName:    args.IfName,
@@ -73,14 +53,14 @@ func cmdAdd(args *skel.CmdArgs) error {
 	}
 
 	// process the reply from the remote CNI handler
-	result := &current.Result{
+	result := &cnisb.Result{
 		CNIVersion: cniVersion,
 	}
 
 	// process interfaces
 	for ifidx, iface := range r.Interfaces {
 		// append interface info
-		result.Interfaces = append(result.Interfaces, &current.Interface{
+		result.Interfaces = append(result.Interfaces, &cnisb.Interface{
 			Name:    iface.Name,
 			Mac:     iface.Mac,
 			Sandbox: iface.Sandbox,
@@ -91,19 +71,21 @@ func cmdAdd(args *skel.CmdArgs) error {
 			if err != nil {
 				return err
 			}
-			gwAddr, _, err := net.ParseCIDR(ip.Gateway)
-			if err != nil {
-				return err
-			}
+			//if ip.Gateway != "" {
+			//	gwAddr, _, err := net.ParseCIDR(ip.Gateway)
+			//	if err != nil {
+			//		return err
+			//	}
+			//}
 			version := "4"
-			if ip.Version == cni.CNIReply_Interface_IP_IPV6 {
+			if ip.Version == cninb.CNIReply_Interface_IP_IPV6 {
 				version = "6"
 			}
-			result.IPs = append(result.IPs, &current.IPConfig{
+			result.IPs = append(result.IPs, &cnisb.IPConfig{
 				Address:   *ipAddr,
 				Version:   version,
 				Interface: &ifidx,
-				Gateway:   gwAddr,
+				//Gateway:   gwAddr, // TODO
 			})
 		}
 	}
@@ -124,31 +106,18 @@ func cmdAdd(args *skel.CmdArgs) error {
 		})
 	}
 
-	// TODO: DNS
+	// process DNS entry
+	for _, dns := range r.Dns {
+		result.DNS.Nameservers = dns.Nameservers
+		result.DNS.Domain = dns.Domain
+		result.DNS.Search = dns.Search
+		result.DNS.Options = dns.Options
+	}
 
 	return result.Print()
 }
 
 func cmdDel(args *skel.CmdArgs) error {
-
-	// TODO: to be removed, this removes a loopback - for debug purposes
-	args.IfName = "lo" // ignore config, this only works for loopback
-	err := ns.WithNetNSPath(args.Netns, func(ns.NetNS) error {
-		link, err := netlink.LinkByName(args.IfName)
-		if err != nil {
-			return err // not tested
-		}
-
-		err = netlink.LinkSetDown(link)
-		if err != nil {
-			return err // not tested
-		}
-
-		return nil
-	})
-	if err != nil {
-		return err // not tested
-	}
 
 	// connect to remote CNI handler over gRPC
 	conn, c, err := getRemoteCNIClient()
@@ -158,7 +127,7 @@ func cmdDel(args *skel.CmdArgs) error {
 	defer conn.Close()
 
 	// execute the DELETE request
-	_, err = c.Delete(context.Background(), &cni.CNIRequest{
+	_, err = c.Delete(context.Background(), &cninb.CNIRequest{
 		Version:          cniVersion,
 		ContainerId:      args.ContainerID,
 		InterfaceName:    args.IfName,
@@ -171,15 +140,15 @@ func cmdDel(args *skel.CmdArgs) error {
 	return nil
 }
 
-func main() {
-	skel.PluginMain(cmdAdd, cmdDel, version.All)
-}
-
-func getRemoteCNIClient() (*grpc.ClientConn, cni.RemoteCNIClient, error) {
+func getRemoteCNIClient() (*grpc.ClientConn, cninb.RemoteCNIClient, error) {
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(defaultAddress, grpc.WithInsecure()) // TODO: parse from plugin config
 	if err != nil {
 		return nil, nil, err
 	}
-	return conn, cni.NewRemoteCNIClient(conn), nil
+	return conn, cninb.NewRemoteCNIClient(conn), nil
+}
+
+func main() {
+	skel.PluginMain(cmdAdd, cmdDel, version.All)
 }
