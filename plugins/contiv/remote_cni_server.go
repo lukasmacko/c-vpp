@@ -177,7 +177,7 @@ func (s *remoteCNIserver) veth1FromRequest(request *cni.CNIRequest) *linux_intf.
 		},
 		IpAddresses: []string{"10.0.0." + strconv.Itoa(s.counter) + "/24"},
 		Namespace: &linux_intf.LinuxInterfaces_Interface_Namespace{
-			Type: linux_intf.LinuxInterfaces_Interface_Namespace_NAMED_NS,
+			Type: linux_intf.LinuxInterfaces_Interface_Namespace_FILE_REF_NS,
 			Name: request.NetworkNamespace,
 		},
 	}

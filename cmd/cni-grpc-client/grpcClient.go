@@ -13,7 +13,7 @@ import (
 const (
 	defaultAddress          = "localhost:9111"
 	defaultIfName           = "veth1"
-	defaultNetworkNamespace = "ns1"
+	defaultNetworkNamespace = "/var/run/netns/55195f8d25bb4042"
 	defaultContainerId      = "sadjlfkj34l1kq4142348dw90"
 )
 
