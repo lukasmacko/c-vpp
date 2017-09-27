@@ -4,5 +4,3 @@ import:
   version: v1.0.4
 - package: github.com/ligato/vpp-agent
   version: v1.0.5
-- package: github.com/containernetworking/cni
-  version: ff7c3e02e3c212f63a642ad64a5ed22ee54450bd
