@@ -28,10 +28,18 @@ func main() {
 	defer conn.Close()
 	c := cni.NewRemoteCNIClient(conn)
 
+	req := cni.CNIRequest{
+		Version:          "0.3.1",
+		ContainerId:      "sadjlfkj34l1kq4142348dw90",
+		NetworkNamespace: "ns1",
+		InterfaceName:    "eth0",
+	}
+	logroot.StandardLogger().WithField("req", req).Info("Sending request")
+
 	r, err := c.Add(context.Background(), &cni.CNIRequest{})
 	if err != nil {
 		logroot.StandardLogger().Fatalf("could not receive response: %v", err)
 	}
-	logroot.StandardLogger().Printf("Response: %v (received from server)", r.Result)
-	logroot.StandardLogger().Info("In order to test the connection run 'sudo ip netns exec ns1 ping 10.0.0.2'")
+	logroot.StandardLogger().WithField("resp", *r).Infof("Response: %v (received from server)", r.Result)
+	logroot.StandardLogger().Info("In order to test the connection run 'sudo ip netns exec ns1 ping 10.0.0.254'")
 }
