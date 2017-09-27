@@ -23,12 +23,12 @@ import (
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ns"
 	"github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
-	"github.com/ligato/cn-infra/logging/logroot"
 	"github.com/vishvananda/netlink"
 	"google.golang.org/grpc"
 )
 
 const (
+	cniVersion     = "0.3.1"
 	defaultAddress = "localhost:9111"
 )
 
@@ -53,14 +53,21 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err // not tested
 	}
 
-	c := getRemoteCNIClient()
-	r, err := c.Add(context.Background(), &cni.CNIRequest{})
+	// connect to remote CNI handler over gRPC and forward the request
+	c, err := getRemoteCNIClient()
+	if err != nil {
+		return err
+	}
+	r, err := c.Add(context.Background(), &cni.CNIRequest{
+		Version: cniVersion,
+	})
 	if err != nil {
 		return err
 	}
 
+	// process the reply from the remote CNI handler
 	result := &current.Result{
-		CNIVersion: "0.3.1",
+		CNIVersion: cniVersion,
 	}
 	for ifidx, iface := range r.Interfaces {
 		// append interface info
@@ -125,12 +132,12 @@ func main() {
 	skel.PluginMain(cmdAdd, cmdDel, version.All)
 }
 
-func getRemoteCNIClient() cni.RemoteCNIClient {
+func getRemoteCNIClient() (cni.RemoteCNIClient, error) {
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(defaultAddress, grpc.WithInsecure()) // TODO: parse from plugin config
 	if err != nil {
-		logroot.StandardLogger().Fatalf("did not connect: %v", err)
+		return nil, err
 	}
 	//defer conn.Close() // TODO close properly
-	return cni.NewRemoteCNIClient(conn)
+	return cni.NewRemoteCNIClient(conn), nil
 }
