@@ -19,6 +19,7 @@ import (
 	"net"
 
 	"github.com/containernetworking/cni/pkg/skel"
+	"github.com/containernetworking/cni/pkg/types"
 	"github.com/containernetworking/cni/pkg/types/current"
 	"github.com/containernetworking/cni/pkg/version"
 	"github.com/containernetworking/plugins/pkg/ns"
@@ -28,7 +29,7 @@ import (
 )
 
 const (
-	cniVersion     = "0.3.1"
+	cniVersion     = "0.2.0"
 	defaultAddress = "localhost:9111"
 )
 
@@ -53,13 +54,19 @@ func cmdAdd(args *skel.CmdArgs) error {
 		return err // not tested
 	}
 
-	// connect to remote CNI handler over gRPC and forward the request
-	c, err := getRemoteCNIClient()
+	// connect to remote CNI handler over gRPC
+	conn, c, err := getRemoteCNIClient()
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
+
+	// execute the ADD request
 	r, err := c.Add(context.Background(), &cni.CNIRequest{
-		Version: cniVersion,
+		Version:          cniVersion,
+		ContainerId:      args.ContainerID,
+		InterfaceName:    args.IfName,
+		NetworkNamespace: args.Netns,
 	})
 	if err != nil {
 		return err
@@ -69,6 +76,8 @@ func cmdAdd(args *skel.CmdArgs) error {
 	result := &current.Result{
 		CNIVersion: cniVersion,
 	}
+
+	// process interfaces
 	for ifidx, iface := range r.Interfaces {
 		// append interface info
 		result.Interfaces = append(result.Interfaces, &current.Interface{
@@ -99,6 +108,24 @@ func cmdAdd(args *skel.CmdArgs) error {
 		}
 	}
 
+	// process routes
+	for _, route := range r.Routes {
+		_, dstIP, err := net.ParseCIDR(route.Dst)
+		if err != nil {
+			return err
+		}
+		gwAddr, _, err := net.ParseCIDR(route.Gw)
+		if err != nil {
+			return err
+		}
+		result.Routes = append(result.Routes, &types.Route{
+			Dst: *dstIP,
+			GW:  gwAddr,
+		})
+	}
+
+	// TODO: DNS
+
 	return result.Print()
 }
 
@@ -123,7 +150,23 @@ func cmdDel(args *skel.CmdArgs) error {
 		return err // not tested
 	}
 
-	// TODO: call grpc
+	// connect to remote CNI handler over gRPC
+	conn, c, err := getRemoteCNIClient()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	// execute the DELETE request
+	_, err = c.Delete(context.Background(), &cni.CNIRequest{
+		Version:          cniVersion,
+		ContainerId:      args.ContainerID,
+		InterfaceName:    args.IfName,
+		NetworkNamespace: args.Netns,
+	})
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -132,12 +175,11 @@ func main() {
 	skel.PluginMain(cmdAdd, cmdDel, version.All)
 }
 
-func getRemoteCNIClient() (cni.RemoteCNIClient, error) {
+func getRemoteCNIClient() (*grpc.ClientConn, cni.RemoteCNIClient, error) {
 	// Set up a connection to the server.
 	conn, err := grpc.Dial(defaultAddress, grpc.WithInsecure()) // TODO: parse from plugin config
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	//defer conn.Close() // TODO close properly
-	return cni.NewRemoteCNIClient(conn), nil
+	return conn, cni.NewRemoteCNIClient(conn), nil
 }
