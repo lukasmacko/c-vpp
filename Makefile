@@ -17,6 +17,9 @@ endef
 define install_only
 	@echo "# installing contiv-vpp"
 	@cd cmd/contiv-vpp && go install -v ${LDFLAGS}
+	@echo "# installing contiv-reflector"
+	@cd cmd/contiv-reflector && go install -v ${LDFLAGS}
+	@echo "# installing contiv-cni"
 	@cd cmd/contiv-cni && go install -v ${LDFLAGS}
 	@echo "# done"
 endef
@@ -58,11 +61,17 @@ define format_only
     @echo "# done"
 endef
 
-
 # build contiv-vpp only
 define build_contiv_vpp_only
     @echo "# building contiv-vpp"
     @cd cmd/contiv-vpp && go build -v -i ${LDFLAGS}
+    @echo "# done"
+endef
+
+# build contiv-reflector only
+define build_contiv_reflector_only
+    @echo "# building contiv-reflector"
+    @cd cmd/contiv-reflector && go build -v -i ${LDFLAGS}
     @echo "# done"
 endef
 
@@ -94,10 +103,15 @@ build:
 	$(call build_contiv_vpp_only)
 	$(call build_contiv_cni_only)
 	$(call build_cni_grpc_client_only)
+	$(call build_contiv_reflector_only)
 
 # build contiv-vpp
 contiv-vpp:
 	$(call build_contiv_vpp_only)
+
+# build contiv-reflector
+contiv-reflector:
+	$(call build_contiv_reflector_only)
 
 # build contiv-cni
 contiv-cni:
@@ -114,6 +128,10 @@ install-dep:
 # update dependencies
 update-dep:
 	$(call update_dependencies)
+
+# unify sirupsen imports
+unify-sirupsen:
+	$(call unify_sirupsen)
 
 # generate structures
 generate:
@@ -152,6 +170,7 @@ clean:
 	rm -f cmd/contiv-vpp/contiv-vpp
 	rm -f cmd/contiv-cni/contiv-cni
 	rm -f cmd/cni-grpc-client/cni-grpc-client
+	rm -f cmd/contiv-reflector/contiv-reflector
 	@echo "# cleanup completed"
 
 # run all targets

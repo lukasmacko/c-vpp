@@ -3,3 +3,4 @@ glide.lock
 cmd/contiv-vpp/contiv-vpp
 cmd/cni-grpc-client/cni-grpc-client
 cmd/contiv-cni/contiv-cni
+cmd/contiv-reflector/contiv-reflector
