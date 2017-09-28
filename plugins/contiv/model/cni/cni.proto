@@ -84,6 +84,7 @@ message CNIReply {
       // The default gateway for this subnet, if one exists.
       string gateway = 3;
     }
+    // List of IP addressess applied on the interface.
     repeated IP ip_addresses = 4;
   }
   // List of interfaces connected to the container.
@@ -114,5 +115,6 @@ message CNIReply {
     // Listt of options that can be passed to the resolver.
     repeated string options = 4;
   }
+  // DNS entries. Repeated only because it is optional, normally there should be only one dns member.
   repeated DNS dns = 6;
 }

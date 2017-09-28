@@ -1,9 +1,11 @@
 package: github.com/contiv/contiv-vpp
 import:
 - package: github.com/ligato/cn-infra
-  version: 53de9805afc0d3fbdc6053815cea9454d7918f54
+  version: v1.0.4
 - package: github.com/ligato/vpp-agent
-  version: 7ced11c6a6a00307200abc168dbab46fee4572c9
+  version: v1.0.5
+- package: github.com/containernetworking/cni
+  version: v0.6.0
 - package: k8s.io/apimachinery
   version: b317fa7ec8e0e7d1f77ac63bf8c3ec7b29a2a215
 - package: k8s.io/client-go
@@ -22,4 +24,3 @@ import:
   - pkg/tlsutil
 - package: google.golang.org/grpc
   version: v1.2.1 # this version is requested by etcd v3.2.0
-

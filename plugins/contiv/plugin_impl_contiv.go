@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:generate protoc -I ./model/cni --go_out=plugins=grpc:./model/cni ./model/cni/cni.proto
+
 package contiv
 
 import (
@@ -20,24 +22,28 @@ import (
 	"github.com/ligato/cn-infra/rpc/grpc"
 )
 
-// Plugin
+// Plugin transforms GRPC requests into configuration for the VPP in order
+// to connect a container into the network.
 type Plugin struct {
 	Deps
 
 	cniServer *remoteCNIserver
 }
 
+// Deps group the dependencies of the Plugin
 type Deps struct {
 	local.PluginInfraDeps
 	GRPC grpc.Server
 }
 
+// Init initializes the grpc server handling the request from the CNI.
 func (plugin *Plugin) Init() error {
 	plugin.cniServer = newRemoteCNIServer(plugin.Log)
 	cni.RegisterRemoteCNIServer(plugin.GRPC.Server(), plugin.cniServer)
 	return nil
 }
 
+// Close cleans up the resources allocated by the plugin
 func (plugin *Plugin) Close() error {
 	return nil
 }
