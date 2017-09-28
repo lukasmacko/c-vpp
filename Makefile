@@ -129,6 +129,10 @@ install-dep:
 update-dep:
 	$(call update_dependencies)
 
+# unify sirupsen imports
+unify-sirupsen:
+	$(call unify_sirupsen)
+
 # generate structures
 generate:
 	$(call generate_sources)
