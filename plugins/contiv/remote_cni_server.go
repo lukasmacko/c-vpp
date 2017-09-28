@@ -167,6 +167,10 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 // +-------------------+
 
 func (s *remoteCNIserver) veth1NameFromRequest(request *cni.CNIRequest) string {
+	return request.InterfaceName + request.ContainerId
+}
+
+func (s *remoteCNIserver) veth1HostIfNameFromRequest(request *cni.CNIRequest) string {
 	return request.InterfaceName
 }
 
@@ -183,9 +187,10 @@ func (s *remoteCNIserver) ipAddrForContainer() string {
 
 func (s *remoteCNIserver) veth1FromRequest(request *cni.CNIRequest) *linux_intf.LinuxInterfaces_Interface {
 	return &linux_intf.LinuxInterfaces_Interface{
-		Name:    s.veth1NameFromRequest(request),
-		Type:    linux_intf.LinuxInterfaces_VETH,
-		Enabled: true,
+		Name:       s.veth1NameFromRequest(request),
+		Type:       linux_intf.LinuxInterfaces_VETH,
+		Enabled:    true,
+		HostIfName: s.veth1HostIfNameFromRequest(request),
 		Veth: &linux_intf.LinuxInterfaces_Interface_Veth{
 			PeerIfName: s.veth2NameFromRequest(request),
 		},
@@ -199,9 +204,10 @@ func (s *remoteCNIserver) veth1FromRequest(request *cni.CNIRequest) *linux_intf.
 
 func (s *remoteCNIserver) veth2FromRequest(request *cni.CNIRequest) *linux_intf.LinuxInterfaces_Interface {
 	return &linux_intf.LinuxInterfaces_Interface{
-		Name:    s.veth2NameFromRequest(request),
-		Type:    linux_intf.LinuxInterfaces_VETH,
-		Enabled: true,
+		Name:       s.veth2NameFromRequest(request),
+		Type:       linux_intf.LinuxInterfaces_VETH,
+		Enabled:    true,
+		HostIfName: s.veth2NameFromRequest(request),
 		Veth: &linux_intf.LinuxInterfaces_Interface_Veth{
 			PeerIfName: s.veth1NameFromRequest(request),
 		},
