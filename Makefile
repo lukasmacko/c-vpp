@@ -94,12 +94,6 @@ define build_contiv_cni_only
     @echo "# done"
 endef
 
-# build cni-grpc-client only
-define build_cni_grpc_client_only
-    @echo "# building cni-grpc-client"
-    @cd cmd/cni-grpc-client && go build -v -i ${LDFLAGS}
-    @echo "# done"
-endef
 
 # verify that links in markdown files are valid
 # requires npm install -g markdown-link-check
@@ -114,7 +108,6 @@ endef
 build:
 	$(call build_contiv_vpp_only)
 	$(call build_contiv_cni_only)
-	$(call build_cni_grpc_client_only)
 	$(call build_contiv_reflector_only)
 
 # build contiv-vpp
@@ -181,7 +174,6 @@ check_links:
 clean:
 	rm -f cmd/contiv-vpp/contiv-vpp
 	rm -f cmd/contiv-cni/contiv-cni
-	rm -f cmd/cni-grpc-client/cni-grpc-client
 	rm -f cmd/contiv-reflector/contiv-reflector
 	@echo "# cleanup completed"
 
