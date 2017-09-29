@@ -16,6 +16,8 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net"
 
 	"github.com/containernetworking/cni/pkg/skel"
@@ -27,15 +29,56 @@ import (
 	cninb "github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
 )
 
-const (
-	cniVersion     = "0.2.0"
-	defaultAddress = "localhost:9111"
-)
+type CNIConfig struct {
+	// common CNI config
+	types.NetConf
+
+	// previous result, when called in the context of a chained plugin
+	PrevResult *map[string]interface{} `json:"prevResult"`
+
+	// plugin-specific config
+	GrpcServer string `json:"grpcServer"`
+}
+
+func loadCNIConfig(bytes []byte) (*CNIConfig, error) {
+	// unmarshall the config
+	conf := &CNIConfig{}
+	if err := json.Unmarshal(bytes, conf); err != nil {
+		return nil, fmt.Errorf("failed to load plugin config: %v", err)
+	}
+
+	// CNI chaining is not supported by this plugin, print out an error in case it was chained
+	if conf.PrevResult != nil {
+		return nil, fmt.Errorf("CNI chaining is not supported by this plugin")
+	}
+
+	// grpcServer is mandatory
+	if conf.GrpcServer == "" {
+		return nil, fmt.Errorf(`"grpcServer" field is required. It specifies where the CNI requests should be forwarded to`)
+	}
+
+	return conf, nil
+}
+
+func grpcConnect(grpcServer string) (*grpc.ClientConn, cninb.RemoteCNIClient, error) {
+	// Set up a connection to the server.
+	conn, err := grpc.Dial(grpcServer, grpc.WithInsecure())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return conn, cninb.NewRemoteCNIClient(conn), nil
+}
 
 func cmdAdd(args *skel.CmdArgs) error {
+	// load CNI config
+	cfg, err := loadCNIConfig(args.StdinData)
+	if err != nil {
+		return err
+	}
 
 	// connect to remote CNI handler over gRPC
-	conn, c, err := getRemoteCNIClient()
+	conn, c, err := grpcConnect(cfg.GrpcServer)
 	if err != nil {
 		return err
 	}
@@ -43,7 +86,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	// execute the ADD request
 	r, err := c.Add(context.Background(), &cninb.CNIRequest{
-		Version:          cniVersion,
+		Version:          cfg.CNIVersion,
 		ContainerId:      args.ContainerID,
 		InterfaceName:    args.IfName,
 		NetworkNamespace: args.Netns,
@@ -54,7 +97,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 
 	// process the reply from the remote CNI handler
 	result := &cnisb.Result{
-		CNIVersion: cniVersion,
+		CNIVersion: cfg.CNIVersion,
 	}
 
 	// process interfaces
@@ -71,12 +114,13 @@ func cmdAdd(args *skel.CmdArgs) error {
 			if err != nil {
 				return err
 			}
-			//if ip.Gateway != "" {
-			//	gwAddr, _, err := net.ParseCIDR(ip.Gateway)
-			//	if err != nil {
-			//		return err
-			//	}
-			//}
+			var gwAddr net.IP
+			if ip.Gateway != "" {
+				gwAddr, _, err = net.ParseCIDR(ip.Gateway)
+				if err != nil {
+					return err
+				}
+			}
 			version := "4"
 			if ip.Version == cninb.CNIReply_Interface_IP_IPV6 {
 				version = "6"
@@ -85,7 +129,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 				Address:   *ipAddr,
 				Version:   version,
 				Interface: &ifidx,
-				//Gateway:   gwAddr, // TODO
+				Gateway:   gwAddr,
 			})
 		}
 	}
@@ -118,9 +162,14 @@ func cmdAdd(args *skel.CmdArgs) error {
 }
 
 func cmdDel(args *skel.CmdArgs) error {
+	// load CNI config
+	n, err := loadCNIConfig(args.StdinData)
+	if err != nil {
+		return err
+	}
 
 	// connect to remote CNI handler over gRPC
-	conn, c, err := getRemoteCNIClient()
+	conn, c, err := grpcConnect(n.GrpcServer)
 	if err != nil {
 		return err
 	}
@@ -128,7 +177,7 @@ func cmdDel(args *skel.CmdArgs) error {
 
 	// execute the DELETE request
 	_, err = c.Delete(context.Background(), &cninb.CNIRequest{
-		Version:          cniVersion,
+		Version:          n.CNIVersion,
 		ContainerId:      args.ContainerID,
 		InterfaceName:    args.IfName,
 		NetworkNamespace: args.Netns,
@@ -140,15 +189,7 @@ func cmdDel(args *skel.CmdArgs) error {
 	return nil
 }
 
-func getRemoteCNIClient() (*grpc.ClientConn, cninb.RemoteCNIClient, error) {
-	// Set up a connection to the server.
-	conn, err := grpc.Dial(defaultAddress, grpc.WithInsecure()) // TODO: parse from plugin config
-	if err != nil {
-		return nil, nil, err
-	}
-	return conn, cninb.NewRemoteCNIClient(conn), nil
-}
-
 func main() {
+	// execute the CNI plugin
 	skel.PluginMain(cmdAdd, cmdDel, version.All)
 }
