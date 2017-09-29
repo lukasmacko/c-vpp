@@ -5,7 +5,7 @@ This plugin that forwards the CNI requests to the gRPC server specified in the C
 To run the plugin for testing purposes, create the file `/etc/cni/net.d/10-contiv-cni.conf`:
 ```
 {
-	"cniVersion": "0.2.0",
+	"cniVersion": "0.3.1",
 	"type": "contiv-cni",
 	"grpcServer": "localhost:9111"
 }
