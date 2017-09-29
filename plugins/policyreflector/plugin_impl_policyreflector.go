@@ -15,15 +15,11 @@
 package policyreflector
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 
-	clientapi "k8s.io/client-go/pkg/api"
+	"k8s.io/client-go/kubernetes"
 	clientapi_v1 "k8s.io/client-go/pkg/api/v1"
 	clientapi_v1beta1 "k8s.io/client-go/pkg/apis/extensions/v1beta1"
 	"k8s.io/client-go/rest"
@@ -32,6 +28,7 @@ import (
 
 	"github.com/ligato/cn-infra/datasync"
 	"github.com/ligato/cn-infra/flavors/local"
+	"github.com/ligato/cn-infra/logging"
 	"github.com/ligato/cn-infra/utils/safeclose"
 )
 
@@ -41,8 +38,8 @@ type Plugin struct {
 
 	stopCh chan struct{}
 
-	k8sRestClientConfig *rest.Config
-	k8sRestClient       *rest.RESTClient
+	k8sClientConfig *rest.Config
+	k8sClientset    *kubernetes.Clientset
 
 	k8sPolicyStore      cache.Store
 	k8sPolicyController cache.Controller
@@ -67,6 +64,7 @@ type Config struct {
 }
 
 func (plugin *Plugin) Init() error {
+	plugin.Log.SetLevel(logging.DebugLevel)
 	plugin.stopCh = make(chan struct{})
 
 	if plugin.Config == nil {
@@ -83,26 +81,14 @@ func (plugin *Plugin) Init() error {
 		plugin.Log.Info("Using default PolicyReflector configuration")
 	}
 
-	// Now build the Kubernetes client, we support in-cluster config and kubeconfig
-	// as means of configuring the client.
-	plugin.k8sRestClientConfig, err = clientcmd.BuildConfigFromFlags("", plugin.Config.Kubeconfig)
+	plugin.k8sClientConfig, err = clientcmd.BuildConfigFromFlags("", plugin.Config.Kubeconfig)
 	if err != nil {
 		return fmt.Errorf("failed to build kubernetes client config: %s", err)
 	}
 
-	// Get extensions client
-	plugin.k8sRestClientConfig.GroupVersion = &schema.GroupVersion{
-		Group:   "extensions",
-		Version: "v1beta1",
-	}
-	plugin.k8sRestClientConfig.APIPath = "/apis"
-	plugin.k8sRestClientConfig.ContentType = runtime.ContentTypeJSON
-	plugin.k8sRestClientConfig.NegotiatedSerializer =
-		serializer.DirectCodecFactory{CodecFactory: clientapi.Codecs}
-
-	plugin.k8sRestClient, err = rest.RESTClientFor(plugin.k8sRestClientConfig)
+	plugin.k8sClientset, err = kubernetes.NewForConfig(plugin.k8sClientConfig)
 	if err != nil {
-		return fmt.Errorf("failed to build extensions client: %s", err)
+		return fmt.Errorf("failed to build kubernetes client: %s", err)
 	}
 
 	plugin.watchPolicies()
@@ -113,7 +99,8 @@ func (plugin *Plugin) Init() error {
 }
 
 func (plugin *Plugin) watchPolicies() {
-	listWatch := cache.NewListWatchFromClient(plugin.k8sRestClient, "networkpolicies", "", fields.Everything())
+	restClient := plugin.k8sClientset.ExtensionsV1beta1().RESTClient()
+	listWatch := cache.NewListWatchFromClient(restClient, "networkpolicies", "", fields.Everything())
 	plugin.k8sPolicyStore, plugin.k8sPolicyController = cache.NewInformer(
 		listWatch,
 		&clientapi_v1beta1.NetworkPolicy{},
@@ -121,23 +108,23 @@ func (plugin *Plugin) watchPolicies() {
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				jsn, _ := json.Marshal(obj)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "policy": jsn}).
+				policy := obj.(*clientapi_v1beta1.NetworkPolicy)
+				plugin.Log.WithFields(map[string]interface{}{"key": key, "policy": policy}).
 					Info("Network policy added")
 			},
 			DeleteFunc: func(obj interface{}) {
 				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				jsn, _ := json.Marshal(obj)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "policy": jsn}).
+				policy := obj.(*clientapi_v1beta1.NetworkPolicy)
+				plugin.Log.WithFields(map[string]interface{}{"key": key, "policy": policy}).
 					Info("Network policy deleted")
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				oldKey, _ := cache.MetaNamespaceKeyFunc(oldObj)
-				oldJsn, _ := json.Marshal(oldObj)
+				oldPolicy := oldObj.(*clientapi_v1beta1.NetworkPolicy)
 				newKey, _ := cache.MetaNamespaceKeyFunc(newObj)
-				newJsn, _ := json.Marshal(newObj)
-				plugin.Log.WithFields(map[string]interface{}{"old-key": oldKey, "old-policy": oldJsn,
-					"new-key": newKey, "new-policy": newJsn}).Info("Network policy changed")
+				newPolicy := newObj.(*clientapi_v1beta1.NetworkPolicy)
+				plugin.Log.WithFields(map[string]interface{}{"old-key": oldKey, "old-policy": oldPolicy,
+					"new-key": newKey, "new-policy": newPolicy}).Info("Network policy changed")
 			},
 		},
 	)
@@ -150,7 +137,8 @@ func (plugin *Plugin) watchPolicies() {
 }
 
 func (plugin *Plugin) watchPods() {
-	listWatch := cache.NewListWatchFromClient(plugin.k8sRestClient, "pods", "", fields.Everything())
+	restClient := plugin.k8sClientset.CoreV1().RESTClient()
+	listWatch := cache.NewListWatchFromClient(restClient, "pods", "", fields.Everything())
 	plugin.k8sPodStore, plugin.k8sPodController = cache.NewInformer(
 		listWatch,
 		&clientapi_v1.Pod{},
@@ -158,23 +146,23 @@ func (plugin *Plugin) watchPods() {
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				jsn, _ := json.Marshal(obj)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "pod": jsn}).
+				pod := obj.(*clientapi_v1.Pod)
+				plugin.Log.WithFields(map[string]interface{}{"key": key, "pod": pod}).
 					Info("Pod added")
 			},
 			DeleteFunc: func(obj interface{}) {
 				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				jsn, _ := json.Marshal(obj)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "pod": jsn}).
+				pod := obj.(*clientapi_v1.Pod)
+				plugin.Log.WithFields(map[string]interface{}{"key": key, "pod": pod}).
 					Info("Pod deleted")
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				oldKey, _ := cache.MetaNamespaceKeyFunc(oldObj)
-				oldJsn, _ := json.Marshal(oldObj)
+				oldPod := oldObj.(*clientapi_v1.Pod)
 				newKey, _ := cache.MetaNamespaceKeyFunc(newObj)
-				newJsn, _ := json.Marshal(newObj)
-				plugin.Log.WithFields(map[string]interface{}{"old-key": oldKey, "old-pod": oldJsn,
-					"new-key": newKey, "new-pod": newJsn}).Info("Pod changed")
+				newPod := newObj.(*clientapi_v1.Pod)
+				plugin.Log.WithFields(map[string]interface{}{"old-key": oldKey, "old-pod": oldPod,
+					"new-key": newKey, "new-pod": newPod}).Info("Pod changed")
 			},
 		},
 	)
@@ -187,7 +175,8 @@ func (plugin *Plugin) watchPods() {
 }
 
 func (plugin *Plugin) watchNamespaces() {
-	listWatch := cache.NewListWatchFromClient(plugin.k8sRestClient, "namespace", "", fields.Everything())
+	restClient := plugin.k8sClientset.CoreV1().RESTClient()
+	listWatch := cache.NewListWatchFromClient(restClient, "namespaces", "", fields.Everything())
 	plugin.k8sNamespaceStore, plugin.k8sNamespaceController = cache.NewInformer(
 		listWatch,
 		&clientapi_v1.Namespace{},
@@ -195,23 +184,23 @@ func (plugin *Plugin) watchNamespaces() {
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
 				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				jsn, _ := json.Marshal(obj)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "ns": jsn}).
+				ns := obj.(*clientapi_v1.Namespace)
+				plugin.Log.WithFields(map[string]interface{}{"key": key, "ns": ns}).
 					Info("Namespace added")
 			},
 			DeleteFunc: func(obj interface{}) {
 				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				jsn, _ := json.Marshal(obj)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "ns": jsn}).
+				ns := obj.(*clientapi_v1.Namespace)
+				plugin.Log.WithFields(map[string]interface{}{"key": key, "ns": ns}).
 					Info("Namespace deleted")
 			},
 			UpdateFunc: func(oldObj, newObj interface{}) {
 				oldKey, _ := cache.MetaNamespaceKeyFunc(oldObj)
-				oldJsn, _ := json.Marshal(oldObj)
+				oldNs := oldObj.(*clientapi_v1.Namespace)
 				newKey, _ := cache.MetaNamespaceKeyFunc(newObj)
-				newJsn, _ := json.Marshal(newObj)
-				plugin.Log.WithFields(map[string]interface{}{"old-key": oldKey, "old-ns": oldJsn,
-					"new-key": newKey, "new-ns": newJsn}).Info("Namespace changed")
+				newNs := newObj.(*clientapi_v1.Namespace)
+				plugin.Log.WithFields(map[string]interface{}{"old-key": oldKey, "old-ns": oldNs,
+					"new-key": newKey, "new-ns": newNs}).Info("Namespace changed")
 			},
 		},
 	)
