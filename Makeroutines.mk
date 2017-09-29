@@ -21,10 +21,10 @@ endef
 
 # Make all imports of sirupsen/logrus upper-case.
 define unify_sirupsen
-    @find . -type f -name '*.go' -exec sed -i 's/sirupsen\/logrus/Sirupsen\/logrus/' "{}" +;
+	@find . -type f -name '*.go' -exec sed -i 's/sirupsen\/logrus/Sirupsen\/logrus/' "{}" +;
 endef
 
 # install code generators
 define install_generators
-
+	$(if $(shell command -v protoc --gogo_out=. 2> /dev/null),$(info # gogo/protobuf is installed),$(error gogo/protobuf missing, please install it with go get github.com/gogo/protobuf))
 endef

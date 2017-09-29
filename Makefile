@@ -10,6 +10,7 @@ COVER_DIR=/tmp/
 define generate_sources
 	$(call install_generators)
 	@echo "# generating sources"
+	@cd plugins/contiv && go generate
 	@echo "# done"
 endef
 
@@ -27,23 +28,34 @@ endef
 # run all tests
 define test_only
 	@echo "# running unit tests"
+	@go test ./plugins/contiv
 	@echo "# done"
 endef
 
 # run all tests with coverage
 define test_cover_only
 	@echo "# running unit tests with coverage analysis"
+    @go test -covermode=count -coverprofile=${COVER_DIR}coverage_unit1.out ./plugins/contiv
+    @echo "# merging coverage results"
+    @cd vendor/github.com/wadey/gocovmerge && go install -v
+    @gocovmerge ${COVER_DIR}coverage_unit1.out  > ${COVER_DIR}coverage.out
+    @echo "# coverage data generated into ${COVER_DIR}coverage.out"
     @echo "# done"
 endef
 
 # run all tests with coverage and display HTML report
 define test_cover_html
     $(call test_cover_only)
+    @go tool cover -html=${COVER_DIR}coverage.out -o ${COVER_DIR}coverage.html
+    @echo "# coverage report generated into ${COVER_DIR}coverage.html"
+    @go tool cover -html=${COVER_DIR}coverage.out
 endef
 
 # run all tests with coverage and display XML report
 define test_cover_xml
 	$(call test_cover_only)
+	@gocov convert ${COVER_DIR}coverage.out | gocov-xml > ${COVER_DIR}coverage.xml
+    @echo "# coverage report generated into ${COVER_DIR}coverage.xml"
 endef
 
 # run code analysis
@@ -82,12 +94,6 @@ define build_contiv_cni_only
     @echo "# done"
 endef
 
-# build cni-grpc-client only
-define build_cni_grpc_client_only
-    @echo "# building cni-grpc-client"
-    @cd cmd/cni-grpc-client && go build -v -i ${LDFLAGS}
-    @echo "# done"
-endef
 
 # verify that links in markdown files are valid
 # requires npm install -g markdown-link-check
@@ -102,7 +108,6 @@ endef
 build:
 	$(call build_contiv_vpp_only)
 	$(call build_contiv_cni_only)
-	$(call build_cni_grpc_client_only)
 	$(call build_contiv_reflector_only)
 
 # build contiv-vpp
@@ -169,7 +174,6 @@ check_links:
 clean:
 	rm -f cmd/contiv-vpp/contiv-vpp
 	rm -f cmd/contiv-cni/contiv-cni
-	rm -f cmd/cni-grpc-client/cni-grpc-client
 	rm -f cmd/contiv-reflector/contiv-reflector
 	@echo "# cleanup completed"
 
