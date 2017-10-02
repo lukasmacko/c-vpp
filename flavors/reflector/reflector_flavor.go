@@ -12,25 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package reflector defines flavor used for PolicyReflector agent.
+// Package reflector defines flavor used for the Contiv-Reflector agent.
 package reflector
 
 import (
-	"github.com/contiv/contiv-vpp/plugins/policyreflector"
+	"github.com/contiv/contiv-vpp/plugins/reflector"
 	"github.com/ligato/cn-infra/core"
 	"github.com/ligato/cn-infra/flavors/connectors"
 	"github.com/ligato/cn-infra/flavors/local"
 )
 
-// ReflectorFlavor glues together multiple plugins to watch selected k8s
+// FlavorReflector glues together multiple plugins to watch selected k8s
 // resources and causes all changes to be reflected in a given store.
 type FlavorReflector struct {
 	// Local flavor is used to access the Infra (logger, service label, status check)
 	*local.FlavorLocal
 	// Connectors to various data stores.
 	*connectors.AllConnectorsFlavor
-	// K8s policy reflector.
-	PolicyReflector policyreflector.Plugin
+	// K8s state reflector.
+	Reflector reflector.Plugin
 
 	injected bool
 }
@@ -52,10 +52,10 @@ func (f *FlavorReflector) Inject() (allReadyInjected bool) {
 	}
 	f.AllConnectorsFlavor.Inject()
 
-	f.PolicyReflector.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("policyreflector",
+	f.Reflector.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("reflector",
 		local.WithConf())
-	f.PolicyReflector.Deps.Publish = &f.AllConnectorsFlavor.ETCDDataSync
-	f.PolicyReflector.Deps.Watch = &f.AllConnectorsFlavor.ETCDDataSync
+	f.Reflector.Deps.Publish = &f.AllConnectorsFlavor.ETCDDataSync
+	f.Reflector.Deps.Watch = &f.AllConnectorsFlavor.ETCDDataSync
 
 	return true
 }

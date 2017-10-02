@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package policyreflector
+//go:generate protoc -I ./model/pod --go_out=plugins=grpc:./model/pod ./model/pod/pod.proto
+//go:generate protoc -I ./model/namespace --go_out=plugins=grpc:./model/namespace ./model/namespace/namespace.proto
+//go:generate protoc -I ./model/policy --go_out=plugins=grpc:./model/policy ./model/policy/policy.proto
+
+package reflector
 
 import (
 	"fmt"
@@ -57,7 +61,7 @@ type Deps struct {
 	Watch   datasync.KeyValProtoWatcher
 }
 
-// Config holds the settings for PolicyReflector.
+// Config holds the settings for the Reflector.
 type Config struct {
 	// Path to a kubeconfig file to use for accessing the k8s API.
 	Kubeconfig string `default:"" split_words:"false" json:"kubeconfig"`
@@ -73,12 +77,12 @@ func (plugin *Plugin) Init() error {
 
 	found, err := plugin.PluginConfig.GetValue(plugin.Config)
 	if err != nil {
-		return fmt.Errorf("error loading PolicyReflector configuration file: %s", err)
+		return fmt.Errorf("error loading Reflector configuration file: %s", err)
 	} else if found {
 		plugin.Log.WithField("filename", plugin.PluginConfig.GetConfigName()).Info(
-			"Loaded PolicyReflector configuration file")
+			"Loaded Reflector configuration file")
 	} else {
-		plugin.Log.Info("Using default PolicyReflector configuration")
+		plugin.Log.Info("Using default Reflector configuration")
 	}
 
 	plugin.k8sClientConfig, err = clientcmd.BuildConfigFromFlags("", plugin.Config.Kubeconfig)
