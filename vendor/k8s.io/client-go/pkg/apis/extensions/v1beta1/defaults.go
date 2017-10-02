@@ -24,13 +24,7 @@ import (
 )
 
 func addDefaultingFuncs(scheme *runtime.Scheme) error {
-	RegisterDefaults(scheme)
-	return scheme.AddDefaultingFuncs(
-		SetDefaults_DaemonSet,
-		SetDefaults_Deployment,
-		SetDefaults_ReplicaSet,
-		SetDefaults_NetworkPolicy,
-	)
+	return RegisterDefaults(scheme)
 }
 
 func SetDefaults_DaemonSet(obj *DaemonSet) {
@@ -61,6 +55,10 @@ func SetDefaults_DaemonSet(obj *DaemonSet) {
 			maxUnavailable := intstr.FromInt(1)
 			updateStrategy.RollingUpdate.MaxUnavailable = &maxUnavailable
 		}
+	}
+	if obj.Spec.RevisionHistoryLimit == nil {
+		obj.Spec.RevisionHistoryLimit = new(int32)
+		*obj.Spec.RevisionHistoryLimit = 10
 	}
 }
 

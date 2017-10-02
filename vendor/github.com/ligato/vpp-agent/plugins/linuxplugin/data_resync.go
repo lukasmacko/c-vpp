@@ -103,8 +103,7 @@ func (plugin *Plugin) changePropagateRequest(dataChng datasync.ChangeEvent) erro
 		if err != nil {
 			return err
 		}
-		var diff bool
-		diff, err = dataChng.GetPrevValue(&prevValue)
+		diff, err := dataChng.GetPrevValue(&prevValue)
 		if err == nil {
 			err = plugin.dataChangeIface(diff, &value, &prevValue, dataChng.GetChangeType())
 		}
