@@ -20,9 +20,14 @@ import (
 	"github.com/ligato/cn-infra/flavors/local"
 
 	"github.com/contiv/contiv-vpp/plugins/contiv"
+	"github.com/contiv/contiv-vpp/plugins/kvdbproxy"
 	"github.com/golang/protobuf/proto"
 	"github.com/ligato/cn-infra/datasync"
+	"github.com/ligato/cn-infra/datasync/kvdbsync"
 	local_sync "github.com/ligato/cn-infra/datasync/kvdbsync/local"
+	"github.com/ligato/cn-infra/datasync/resync"
+	"github.com/ligato/cn-infra/db/keyval/etcdv3"
+	"github.com/ligato/cn-infra/flavors/connectors"
 	"github.com/ligato/cn-infra/rpc/grpc"
 	"github.com/ligato/vpp-agent/clientv1/linux/localclient"
 	"github.com/ligato/vpp-agent/plugins/defaultplugins"
@@ -34,12 +39,19 @@ import (
 // configuration using the local client.
 type FlavorContiv struct {
 	*local.FlavorLocal
+
+	ETCD         etcdv3.Plugin
+	ETCDDataSync kvdbsync.Plugin
+
+	KVProxy kvdbproxy.Plugin
+
 	LinuxLocalClient localclient.Plugin
 	GoVPP            govppmux.GOVPPPlugin
 	Linux            linuxplugin.Plugin
 	VPP              defaultplugins.Plugin
 	GRPC             grpc.Plugin
 	Contiv           contiv.Plugin
+	ResyncOrch       resync.Plugin
 	injected         bool
 }
 
@@ -55,10 +67,16 @@ func (f *FlavorContiv) Inject() bool {
 	}
 	f.FlavorLocal.Inject()
 
+	f.ETCD.Deps.PluginInfraDeps = *f.InfraDeps("etcdv3", local.WithConf())
+	connectors.InjectKVDBSync(&f.ETCDDataSync, &f.ETCD, f.ETCD.PluginName, f.FlavorLocal, &f.ResyncOrch)
+
+	f.KVProxy.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("kvproxy")
+	f.KVProxy.Deps.KVDB = &f.ETCDDataSync
+
 	f.GoVPP.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("govpp")
 	f.Linux.Watcher = &datasync.CompositeKVProtoWatcher{Adapters: []datasync.KeyValProtoWatcher{local_sync.Get()}}
 
-	f.VPP.Watch = &datasync.CompositeKVProtoWatcher{Adapters: []datasync.KeyValProtoWatcher{local_sync.Get()}}
+	f.VPP.Watch = &datasync.CompositeKVProtoWatcher{Adapters: []datasync.KeyValProtoWatcher{local_sync.Get(), &f.KVProxy}}
 	f.VPP.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("default-plugins")
 	f.VPP.Deps.Linux = &f.Linux
 	f.VPP.Deps.GoVppmux = &f.GoVPP
@@ -73,6 +91,9 @@ func (f *FlavorContiv) Inject() bool {
 
 	f.Contiv.Deps.PluginInfraDeps = *f.FlavorLocal.InfraDeps("cni-grpc")
 	f.Contiv.Deps.GRPC = &f.GRPC
+	f.Contiv.Deps.Proxy = &f.KVProxy
+
+	f.ResyncOrch.PluginLogDeps = *f.LogDeps("resync-orch")
 
 	return true
 }

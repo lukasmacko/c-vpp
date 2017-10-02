@@ -22,6 +22,9 @@ import (
 	"github.com/ligato/vpp-agent/plugins/defaultplugins/l2plugin/model/l2"
 	linux_intf "github.com/ligato/vpp-agent/plugins/linuxplugin/model/interfaces"
 
+	"github.com/contiv/contiv-vpp/plugins/kvdbproxy"
+	"github.com/gogo/protobuf/proto"
+	"github.com/ligato/cn-infra/datasync"
 	"github.com/prometheus/common/log"
 	"golang.org/x/net/context"
 	"strconv"
@@ -31,6 +34,8 @@ import (
 type remoteCNIserver struct {
 	logging.Logger
 	sync.Mutex
+
+	proxy *kvdbproxy.Plugin
 
 	// bdCreated is true if the bridge domain on the vpp for apackets is configured
 	bdCreated bool
@@ -43,18 +48,19 @@ type remoteCNIserver struct {
 }
 
 const (
-	resultOk       uint32 = 0
-	resultErr      uint32 = 1
-	vethNameMaxLen        = 15
-	bdName                = "bd1"
-	bviName               = "loop1"
-	ipMask                = "24"
-	ipPrefix              = "10.0.0"
-	bviIP                 = ipPrefix + ".254/" + ipMask
+	resultOk           uint32 = 0
+	resultErr          uint32 = 1
+	vethNameMaxLen            = 15
+	bdName                    = "bd1"
+	bviName                   = "loop1"
+	ipMask                    = "24"
+	ipPrefix                  = "10.0.0"
+	bviIP                     = ipPrefix + ".254/" + ipMask
+	afPacketNamePrefix        = "afpacket"
 )
 
-func newRemoteCNIServer(logger logging.Logger) *remoteCNIserver {
-	return &remoteCNIserver{Logger: logger, afPackets: map[string]interface{}{}}
+func newRemoteCNIServer(logger logging.Logger, proxy *kvdbproxy.Plugin) *remoteCNIserver {
+	return &remoteCNIserver{Logger: logger, afPackets: map[string]interface{}{}, proxy: proxy}
 }
 
 // Add connects the container to the network.
@@ -65,7 +71,7 @@ func (s *remoteCNIserver) Add(ctx context.Context, request *cni.CNIRequest) (*cn
 
 func (s *remoteCNIserver) Delete(ctx context.Context, request *cni.CNIRequest) (*cni.CNIReply, error) {
 	s.Info("Delete request received ", *request)
-	return &cni.CNIReply{}, nil
+	return s.unconfigureContainerConnectivity(request)
 }
 
 // configureContainerConnectivity creates veth pair where
@@ -75,6 +81,7 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 	s.Lock()
 	defer s.Unlock()
 
+	changes := map[string]proto.Message{}
 	s.counter++
 
 	veth1 := s.veth1FromRequest(request)
@@ -99,7 +106,9 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 		VppInterface(afpacket)
 
 	if !s.bdCreated {
-		txn.VppInterface(s.bviInterface())
+		bvi := s.bviInterface()
+		txn.VppInterface(bvi)
+		changes[vpp_intf.InterfaceKey(bvi.Name)] = bvi
 	}
 
 	err := txn.BD(bd).
@@ -109,6 +118,13 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 	errMsg := ""
 	if err == nil {
 		s.bdCreated = true
+
+		changes[linux_intf.InterfaceKey(veth1.Name)] = veth1
+		changes[linux_intf.InterfaceKey(veth2.Name)] = veth2
+		changes[vpp_intf.InterfaceKey(afpacket.Name)] = afpacket
+		changes[l2.BridgeDomainKey(bd.Name)] = bd
+		s.persistPutChanges(changes)
+
 	} else {
 		res = resultErr
 		errMsg = err.Error()
@@ -132,6 +148,60 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 		},
 	}
 	return reply, err
+}
+
+func (s *remoteCNIserver) unconfigureContainerConnectivity(request *cni.CNIRequest) (*cni.CNIReply, error) {
+	s.Lock()
+	defer s.Unlock()
+
+	veth1 := s.veth1NameFromRequest(request)
+	veth2 := s.veth2NameFromRequest(request)
+	afpacket := s.afpacketNameFromRequest(request)
+	s.Info("Removing", []string{veth1, veth2, afpacket})
+	// remove afpacket from bridge domain
+	delete(s.afPackets, afpacket)
+
+	bd := s.bridgeDomain()
+
+	log.Info("Bridge domain", *bd)
+
+	err := localclient.DataChangeRequest("CNI").
+		Delete().
+		LinuxInterface(veth1).
+		LinuxInterface(veth2).
+		VppInterface(afpacket).
+		Put().BD(bd).
+		Send().ReceiveReply()
+
+	res := resultOk
+	errMsg := ""
+	if err == nil {
+		s.persistDeleteChanges([]string{veth1, veth2, afpacket})
+		s.persistPutChanges(map[string]proto.Message{bd.Name: bd})
+	} else {
+		res = resultErr
+		errMsg = err.Error()
+	}
+
+	reply := &cni.CNIReply{
+		Result: res,
+		Error:  errMsg,
+	}
+	return reply, err
+}
+
+func (s *remoteCNIserver) persistPutChanges(changes map[string]proto.Message) {
+	for k, v := range changes {
+		s.proxy.AddIgnoreEntry(k, datasync.Put)
+		s.proxy.Put(k, v)
+	}
+}
+
+func (s *remoteCNIserver) persistDeleteChanges(removedKeys []string) {
+	/*for _,k := range removedKeys {
+		 s.proxy.AddIgnoreEntry(k, datasync.Delete)
+		TODO: delete key
+	}*/
 }
 
 //
@@ -181,6 +251,10 @@ func (s *remoteCNIserver) veth2NameFromRequest(request *cni.CNIRequest) string {
 	return request.ContainerId
 }
 
+func (s *remoteCNIserver) afpacketNameFromRequest(request *cni.CNIRequest) string {
+	return afPacketNamePrefix + s.veth2NameFromRequest(request)
+}
+
 func (s *remoteCNIserver) ipAddrForContainer() string {
 	return ipPrefix + "." + strconv.Itoa(s.counter) + "/" + ipMask
 }
@@ -216,7 +290,7 @@ func (s *remoteCNIserver) veth2FromRequest(request *cni.CNIRequest) *linux_intf.
 
 func (s *remoteCNIserver) afpacketFromRequest(request *cni.CNIRequest) *vpp_intf.Interfaces_Interface {
 	return &vpp_intf.Interfaces_Interface{
-		Name:    "afpacket" + strconv.Itoa(s.counter),
+		Name:    s.afpacketNameFromRequest(request),
 		Type:    vpp_intf.InterfaceType_AF_PACKET_INTERFACE,
 		Enabled: true,
 		Afpacket: &vpp_intf.Interfaces_Interface_Afpacket{
