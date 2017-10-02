@@ -455,7 +455,7 @@ func (plugin *LinuxInterfaceConfigurator) DeleteLinuxInterface(iface *intf.Linux
 	}
 	defer revertNs()
 
-	err = linuxcalls.DelVethInterface(oldCfg.config.Name, peer.config.Name)
+	err = linuxcalls.DelVethInterface(oldCfg.config.HostIfName, peer.config.HostIfName)
 	if err != nil {
 		return fmt.Errorf("failed to delete VETH interface: %v", err)
 	}

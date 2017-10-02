@@ -48,14 +48,15 @@ type remoteCNIserver struct {
 }
 
 const (
-	resultOk       uint32 = 0
-	resultErr      uint32 = 1
-	vethNameMaxLen        = 15
-	bdName                = "bd1"
-	bviName               = "loop1"
-	ipMask                = "24"
-	ipPrefix              = "10.0.0"
-	bviIP                 = ipPrefix + ".254/" + ipMask
+	resultOk           uint32 = 0
+	resultErr          uint32 = 1
+	vethNameMaxLen            = 15
+	bdName                    = "bd1"
+	bviName                   = "loop1"
+	ipMask                    = "24"
+	ipPrefix                  = "10.0.0"
+	bviIP                     = ipPrefix + ".254/" + ipMask
+	afPacketNamePrefix        = "afpacket"
 )
 
 func newRemoteCNIServer(logger logging.Logger, proxy *kvdbproxy.Plugin) *remoteCNIserver {
@@ -70,7 +71,7 @@ func (s *remoteCNIserver) Add(ctx context.Context, request *cni.CNIRequest) (*cn
 
 func (s *remoteCNIserver) Delete(ctx context.Context, request *cni.CNIRequest) (*cni.CNIReply, error) {
 	s.Info("Delete request received ", *request)
-	return &cni.CNIReply{}, nil
+	return s.unconfigureContainerConnectivity(request)
 }
 
 // configureContainerConnectivity creates veth pair where
@@ -149,11 +150,58 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 	return reply, err
 }
 
+func (s *remoteCNIserver) unconfigureContainerConnectivity(request *cni.CNIRequest) (*cni.CNIReply, error) {
+	s.Lock()
+	defer s.Unlock()
+
+	veth1 := s.veth1NameFromRequest(request)
+	veth2 := s.veth2NameFromRequest(request)
+	afpacket := s.afpacketNameFromRequest(request)
+	s.Info("Removing", []string{veth1, veth2, afpacket})
+	// remove afpacket from bridge domain
+	delete(s.afPackets, afpacket)
+
+	bd := s.bridgeDomain()
+
+	log.Info("Bridge domain", *bd)
+
+	err := localclient.DataChangeRequest("CNI").
+		Delete().
+		LinuxInterface(veth1).
+		LinuxInterface(veth2).
+		VppInterface(afpacket).
+		Put().BD(bd).
+		Send().ReceiveReply()
+
+	res := resultOk
+	errMsg := ""
+	if err == nil {
+		s.persistDeleteChanges([]string{veth1, veth2, afpacket})
+		s.persistPutChanges(map[string]proto.Message{bd.Name: bd})
+	} else {
+		res = resultErr
+		errMsg = err.Error()
+	}
+
+	reply := &cni.CNIReply{
+		Result: res,
+		Error:  errMsg,
+	}
+	return reply, err
+}
+
 func (s *remoteCNIserver) persistPutChanges(changes map[string]proto.Message) {
 	for k, v := range changes {
 		s.proxy.AddIgnoreEntry(k, datasync.Put)
 		s.proxy.Put(k, v)
 	}
+}
+
+func (s *remoteCNIserver) persistDeleteChanges(removedKeys []string) {
+	/*for _,k := range removedKeys {
+		 s.proxy.AddIgnoreEntry(k, datasync.Delete)
+		TODO: delete key
+	}*/
 }
 
 //
@@ -203,6 +251,10 @@ func (s *remoteCNIserver) veth2NameFromRequest(request *cni.CNIRequest) string {
 	return request.ContainerId
 }
 
+func (s *remoteCNIserver) afpacketNameFromRequest(request *cni.CNIRequest) string {
+	return afPacketNamePrefix + s.veth2NameFromRequest(request)
+}
+
 func (s *remoteCNIserver) ipAddrForContainer() string {
 	return ipPrefix + "." + strconv.Itoa(s.counter) + "/" + ipMask
 }
@@ -238,7 +290,7 @@ func (s *remoteCNIserver) veth2FromRequest(request *cni.CNIRequest) *linux_intf.
 
 func (s *remoteCNIserver) afpacketFromRequest(request *cni.CNIRequest) *vpp_intf.Interfaces_Interface {
 	return &vpp_intf.Interfaces_Interface{
-		Name:    "afpacket" + strconv.Itoa(s.counter),
+		Name:    s.afpacketNameFromRequest(request),
 		Type:    vpp_intf.InterfaceType_AF_PACKET_INTERFACE,
 		Enabled: true,
 		Afpacket: &vpp_intf.Interfaces_Interface_Afpacket{
