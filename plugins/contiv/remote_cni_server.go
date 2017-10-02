@@ -22,6 +22,9 @@ import (
 	"github.com/ligato/vpp-agent/plugins/defaultplugins/l2plugin/model/l2"
 	linux_intf "github.com/ligato/vpp-agent/plugins/linuxplugin/model/interfaces"
 
+	"github.com/contiv/contiv-vpp/plugins/kvdbproxy"
+	"github.com/gogo/protobuf/proto"
+	"github.com/ligato/cn-infra/datasync"
 	"github.com/prometheus/common/log"
 	"golang.org/x/net/context"
 	"strconv"
@@ -31,6 +34,8 @@ import (
 type remoteCNIserver struct {
 	logging.Logger
 	sync.Mutex
+
+	proxy *kvdbproxy.Plugin
 
 	// bdCreated is true if the bridge domain on the vpp for apackets is configured
 	bdCreated bool
@@ -53,8 +58,8 @@ const (
 	bviIP                 = ipPrefix + ".254/" + ipMask
 )
 
-func newRemoteCNIServer(logger logging.Logger) *remoteCNIserver {
-	return &remoteCNIserver{Logger: logger, afPackets: map[string]interface{}{}}
+func newRemoteCNIServer(logger logging.Logger, proxy *kvdbproxy.Plugin) *remoteCNIserver {
+	return &remoteCNIserver{Logger: logger, afPackets: map[string]interface{}{}, proxy: proxy}
 }
 
 // Add connects the container to the network.
@@ -75,6 +80,7 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 	s.Lock()
 	defer s.Unlock()
 
+	changes := map[string]proto.Message{}
 	s.counter++
 
 	veth1 := s.veth1FromRequest(request)
@@ -99,7 +105,9 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 		VppInterface(afpacket)
 
 	if !s.bdCreated {
-		txn.VppInterface(s.bviInterface())
+		bvi := s.bviInterface()
+		txn.VppInterface(bvi)
+		changes[vpp_intf.InterfaceKey(bvi.Name)] = bvi
 	}
 
 	err := txn.BD(bd).
@@ -109,6 +117,13 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 	errMsg := ""
 	if err == nil {
 		s.bdCreated = true
+
+		changes[linux_intf.InterfaceKey(veth1.Name)] = veth1
+		changes[linux_intf.InterfaceKey(veth2.Name)] = veth2
+		changes[vpp_intf.InterfaceKey(afpacket.Name)] = afpacket
+		changes[l2.BridgeDomainKey(bd.Name)] = bd
+		s.persistPutChanges(changes)
+
 	} else {
 		res = resultErr
 		errMsg = err.Error()
@@ -132,6 +147,13 @@ func (s *remoteCNIserver) configureContainerConnectivity(request *cni.CNIRequest
 		},
 	}
 	return reply, err
+}
+
+func (s *remoteCNIserver) persistPutChanges(changes map[string]proto.Message) {
+	for k, v := range changes {
+		s.proxy.AddIgnoreEntry(k, datasync.Put)
+		s.proxy.Put(k, v)
+	}
 }
 
 //

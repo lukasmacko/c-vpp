@@ -18,6 +18,7 @@ package contiv
 
 import (
 	"github.com/contiv/contiv-vpp/plugins/contiv/model/cni"
+	"github.com/contiv/contiv-vpp/plugins/kvdbproxy"
 	"github.com/ligato/cn-infra/flavors/local"
 	"github.com/ligato/cn-infra/rpc/grpc"
 )
@@ -33,12 +34,13 @@ type Plugin struct {
 // Deps group the dependencies of the Plugin
 type Deps struct {
 	local.PluginInfraDeps
-	GRPC grpc.Server
+	GRPC  grpc.Server
+	Proxy *kvdbproxy.Plugin
 }
 
 // Init initializes the grpc server handling the request from the CNI.
 func (plugin *Plugin) Init() error {
-	plugin.cniServer = newRemoteCNIServer(plugin.Log)
+	plugin.cniServer = newRemoteCNIServer(plugin.Log, plugin.Proxy)
 	cni.RegisterRemoteCNIServer(plugin.GRPC.Server(), plugin.cniServer)
 	return nil
 }
