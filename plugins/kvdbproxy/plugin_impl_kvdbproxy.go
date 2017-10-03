@@ -5,7 +5,7 @@ import (
 	"github.com/ligato/cn-infra/datasync"
 	"github.com/ligato/cn-infra/datasync/kvdbsync"
 	"github.com/ligato/cn-infra/flavors/local"
-	"gitlab.cisco.com/ctao/vnf-agent/tricorder/safeclose"
+	"github.com/ligato/cn-infra/utils/safeclose"
 	"sync"
 )
 
