@@ -41,6 +41,38 @@ func (s *testCNIServer) Add(context.Context, *cni.CNIRequest) (*cni.CNIReply, er
 	return &cni.CNIReply{
 		Result: 0,
 		Error:  "",
+		Interfaces: []*cni.CNIReply_Interface{
+			{
+				Name: "eth0",
+				IpAddresses: []*cni.CNIReply_Interface_IP{
+					{
+						Address: "192.168.1.53/24",
+						Version: cni.CNIReply_Interface_IP_IPV4,
+						Gateway: "192.168.1.1",
+					},
+					{
+						Address: "2001:db8::68/64",
+						Version: cni.CNIReply_Interface_IP_IPV6,
+						Gateway: "2001:db8::1",
+					},
+				},
+			},
+		},
+		Routes: []*cni.CNIReply_Route{
+			{
+				Dst: "192.168.1.0/24",
+				Gw:  "192.168.1.1",
+			},
+			{
+				Dst: "2001:db8::68/64",
+				Gw:  "2001:db8::1",
+			},
+		},
+		Dns: []*cni.CNIReply_DNS{
+			{
+				Nameservers: []string{"8.8.8.8"},
+			},
+		},
 	}, nil
 }
 

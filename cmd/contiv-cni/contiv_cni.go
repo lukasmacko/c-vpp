@@ -116,7 +116,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 			}
 			var gwAddr net.IP
 			if ip.Gateway != "" {
-				gwAddr, _, err = net.ParseCIDR(ip.Gateway)
+				gwAddr = net.ParseIP(ip.Gateway)
 				if err != nil {
 					return err
 				}
@@ -140,7 +140,7 @@ func cmdAdd(args *skel.CmdArgs) error {
 		if err != nil {
 			return err
 		}
-		gwAddr, _, err := net.ParseCIDR(route.Gw)
+		gwAddr := net.ParseIP(route.Gw)
 		if err != nil {
 			return err
 		}
