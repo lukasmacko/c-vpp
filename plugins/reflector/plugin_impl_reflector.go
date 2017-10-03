@@ -20,6 +20,7 @@ package reflector
 
 import (
 	"fmt"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/fields"
 
@@ -41,24 +42,30 @@ type Plugin struct {
 	*Config
 
 	stopCh chan struct{}
+	wg     sync.WaitGroup
 
 	k8sClientConfig *rest.Config
 	k8sClientset    *kubernetes.Clientset
+
+	nsReflector *NamespaceReflector
 
 	k8sPolicyStore      cache.Store
 	k8sPolicyController cache.Controller
 
 	k8sPodStore      cache.Store
 	k8sPodController cache.Controller
-
-	k8sNamespaceStore      cache.Store
-	k8sNamespaceController cache.Controller
 }
 
 type Deps struct {
 	local.PluginInfraDeps
 	Publish datasync.KeyProtoValWriter
-	Watch   datasync.KeyValProtoWatcher
+}
+
+type ReflectorDeps struct {
+	*Config
+	Log          logging.Logger
+	K8sClientset *kubernetes.Clientset
+	Publish      datasync.KeyProtoValWriter
 }
 
 // Config holds the settings for the Reflector.
@@ -85,7 +92,7 @@ func (plugin *Plugin) Init() error {
 		plugin.Log.Info("Using default Reflector configuration")
 	}
 
-	plugin.k8sClientConfig, err = clientcmd.BuildConfigFromFlags("", plugin.Config.Kubeconfig)
+	plugin.k8sClientConfig, err = clientcmd.BuildConfigFromFlags("", plugin.Kubeconfig)
 	if err != nil {
 		return fmt.Errorf("failed to build kubernetes client config: %s", err)
 	}
@@ -95,9 +102,20 @@ func (plugin *Plugin) Init() error {
 		return fmt.Errorf("failed to build kubernetes client: %s", err)
 	}
 
-	plugin.watchPolicies()
-	plugin.watchPods()
-	plugin.watchNamespaces()
+	plugin.nsReflector = &NamespaceReflector{}
+	plugin.nsReflector.ReflectorDeps.Log = plugin.Log.NewLogger("-namespace")
+	plugin.nsReflector.ReflectorDeps.Log.SetLevel(logging.DebugLevel)
+	plugin.nsReflector.ReflectorDeps.Config = plugin.Config
+	plugin.nsReflector.ReflectorDeps.K8sClientset = plugin.k8sClientset
+	plugin.nsReflector.ReflectorDeps.Publish = plugin.Publish
+	err = plugin.nsReflector.Init(plugin.stopCh, &plugin.wg)
+	if err != nil {
+		plugin.Log.WithField("err", err).Error("Failed to initialize Namespace reflector")
+		return err
+	}
+
+	//plugin.watchPolicies()
+	//plugin.watchPods()
 
 	return nil
 }
@@ -178,45 +196,9 @@ func (plugin *Plugin) watchPods() {
 	plugin.Log.Debug("Finished syncing with Kubernetes API (Pod)")
 }
 
-func (plugin *Plugin) watchNamespaces() {
-	restClient := plugin.k8sClientset.CoreV1().RESTClient()
-	listWatch := cache.NewListWatchFromClient(restClient, "namespaces", "", fields.Everything())
-	plugin.k8sNamespaceStore, plugin.k8sNamespaceController = cache.NewInformer(
-		listWatch,
-		&clientapi_v1.Namespace{},
-		0,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				ns := obj.(*clientapi_v1.Namespace)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "ns": ns}).
-					Info("Namespace added")
-			},
-			DeleteFunc: func(obj interface{}) {
-				key, _ := cache.MetaNamespaceKeyFunc(obj)
-				ns := obj.(*clientapi_v1.Namespace)
-				plugin.Log.WithFields(map[string]interface{}{"key": key, "ns": ns}).
-					Info("Namespace deleted")
-			},
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				oldKey, _ := cache.MetaNamespaceKeyFunc(oldObj)
-				oldNs := oldObj.(*clientapi_v1.Namespace)
-				newKey, _ := cache.MetaNamespaceKeyFunc(newObj)
-				newNs := newObj.(*clientapi_v1.Namespace)
-				plugin.Log.WithFields(map[string]interface{}{"old-key": oldKey, "old-ns": oldNs,
-					"new-key": newKey, "new-ns": newNs}).Info("Namespace changed")
-			},
-		},
-	)
-
-	go plugin.k8sNamespaceController.Run(plugin.stopCh)
-	plugin.Log.Debug("Waiting to sync with Kubernetes API (Namespace)")
-	for !plugin.k8sNamespaceController.HasSynced() {
-	}
-	plugin.Log.Debug("Finished syncing with Kubernetes API (Namespace)")
-}
-
 func (plugin *Plugin) Close() error {
-	safeclose.CloseAll(plugin.stopCh)
+	close(plugin.stopCh)
+	safeclose.CloseAll(plugin.nsReflector)
+	plugin.wg.Wait()
 	return nil
 }
