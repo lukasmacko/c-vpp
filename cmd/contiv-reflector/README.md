@@ -1,4 +1,4 @@
-### Policy Reflector
+### K8s State Reflector
 
 To start the reflector you have to have ETCD running first.
 if you don't have it installed locally you can use the following docker
@@ -14,5 +14,5 @@ It will bring up ETCD listening on port 12379 for client communication.
 
 Start the reflector with:
 ```
-sudo ./contiv-reflector --policyreflector-config policyreflector.conf --etcdv3-config etcdv3.conf
+sudo ./contiv-reflector --reflector-config reflector.conf --etcdv3-config etcdv3.conf
 ```
