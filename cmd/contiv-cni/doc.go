@@ -11,30 +11,10 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-package aclplugin
-
-import (
-	"github.com/ligato/vpp-agent/plugins/defaultplugins/aclplugin/model/acl"
-	"github.com/ligato/cn-infra/logging"
-)
-
-// Resync writes ACLs to the empty VPP
-func (plugin *ACLConfigurator) Resync(acls []*acl.AccessLists_Acl, log logging.Logger) error {
-	log.Debug("Resync ACLs started")
-
-	var wasError error
-
-	// Create VPP ACLs
-	log.Debugf("Configuring %v new ACLs", len(acls))
-	for _, aclInput := range acls {
-		err := plugin.ConfigureACL(aclInput)
-		if err != nil {
-			wasError = err
-		}
-	}
-
-	log.WithField("cfg", plugin).Debug("RESYNC ACLs end. ", wasError)
-
-	return wasError
-}
+//
+// Contiv-cni is a CNI plugin (binary) that forwards the CNI requests to the
+// gRPC server specified in the CNI config file. The response from gRPC server
+// is then processed back into the standard output of the CNI plugin.
+// This plugin implements the CNI specification version 0.3.1
+// (https://github.com/containernetworking/cni/blob/spec-v0.3.1/SPEC.md).
+package main

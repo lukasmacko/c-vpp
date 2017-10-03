@@ -1,8 +1,9 @@
 ### Contiv CNI Plugin
 
-This plugin that forwards the CNI requests to the gRPC server specified in the CNI config file.
+This plugin forwards the CNI requests to the gRPC server specified in the CNI config file.
+The response from gRPC server is then processed back into the standard output of the CNI plugin.
 
-To run the plugin for testing purposes, create the file `/etc/cni/net.d/10-contiv-cni.conf`:
+To run the plugin for testing purposes, create the CNI config file `/etc/cni/net.d/10-contiv-cni.conf`:
 ```
 {
 	"cniVersion": "0.3.1",
